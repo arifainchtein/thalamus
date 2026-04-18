@@ -1,0 +1,117 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.teleonome</groupId>
+  <artifactId>thalamus</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <packaging>jar</packaging>
+  <name>medula</name>
+<parent>
+        <groupId>com.teleonome</groupId>
+        <artifactId>organbuilder</artifactId>
+        <version>1.0.0</version>
+         <relativePath>../organbuilder/pom.xml</relativePath>
+    </parent>
+  <url>http://maven.apache.org</url>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+ <dependencies>
+<dependency>
+    <groupId>com.teleonome</groupId>
+    <artifactId>framework</artifactId>
+    <version>1</version>
+</dependency>
+  </dependencies>
+   <repositories>
+    <repository>
+        <id>local-maven-repo</id>
+        <url>file:///home/pi/.m2</url>
+    </repository>
+</repositories>
+  <build>
+   <finalName>Medula</finalName>
+    <plugins>
+       <plugin>
+      <artifactId>maven-assembly-plugin</artifactId>
+      <version>3.1.0</version>
+      <configuration>
+      <outputDirectory>../../</outputDirectory>
+        <archive>
+          <manifest>
+            <mainClass>com.teleonome.thalamus.thalamus</mainClass>
+          </manifest>
+        </archive>
+        <descriptorRefs>
+          <descriptorRef>jar-with-dependencies</descriptorRef>
+        </descriptorRefs>
+        <appendAssemblyId>false</appendAssemblyId>
+      </configuration>
+      <executions>
+    <execution>
+      <id>make-assembly</id> <!-- this is used for inheritance merges -->
+      <phase>package</phase> <!-- bind to the packaging phase -->
+      <goals>
+        <goal>single</goal>
+      </goals>
+    </execution>
+  </executions>
+    </plugin>
+ <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <version>1.10</version>
+            <executions>
+                <execution>
+                    <id>timestamp-property</id>
+                    <goals>
+                        <goal>timestamp-property</goal>
+                    </goals>
+                    <configuration>
+                        <name>build.time</name>
+                        <pattern>dd/MM/yyyy HH:mm</pattern>
+                        <locale>en_AU</locale>
+                        <timeZone>Australia/Victoria</timeZone>
+                    </configuration>
+                </execution>
+            </executions>
+        </plugin>
+  <plugin>
+  <groupId>org.apache.maven.plugins</groupId>
+  <artifactId>maven-compiler-plugin</artifactId>
+  <version>2.1</version>
+  <configuration>
+    <source>1.8</source>
+    <target>1.8</target>
+  </configuration>
+</plugin>
+        <plugin>
+    <groupId>com.google.code.maven-replacer-plugin</groupId>
+    <artifactId>replacer</artifactId>
+    <version>1.5.3</version>
+    <executions>
+        <execution>
+            <phase>generate-sources</phase>
+            <goals>
+                <goal>replace</goal>
+            </goals>
+        </execution>
+    </executions>
+    <configuration>
+        <includes>
+            <include>${basedir}/src/main/java/com/teleonome/thalamus/Thalamus.java</include>
+        </includes>
+        <replacements>
+            <replacement>
+                !-- <token>/^private\sstatic\sString\sbuildNumber=.*$/</token> -->
+                <token>private\sString\sbuildNumber=.*</token> -->
+                <value>private static String buildNumber="${build.time}";</value>
+            </replacement>
+        </replacements>
+    </configuration>
+</plugin>
+</plugins>
+</build>
+</project>

@@ -41,7 +41,7 @@
       <outputDirectory>../../</outputDirectory>
         <archive>
           <manifest>
-            <mainClass>com.teleonome.thalamus.thalamus</mainClass>
+            <mainClass>com.teleonome.thalamus.Thalamus</mainClass>
           </manifest>
         </archive>
         <descriptorRefs>

@@ -20,7 +20,7 @@ public class Thalamus {
         "Heart.jar", 
         "Hypothalamus.jar", 
         "Hippocampus.jar",
-        "Medulla.jar",
+        "medula.jar",
         "tomcat" // We will use this as a keyword
     };
 

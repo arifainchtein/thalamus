@@ -20,7 +20,7 @@ public class Thalamus {
         "Heart.jar", 
         "Hypothalamus.jar", 
         "Hippocampus.jar",
-        "medula.jar",
+        "Medula.jar",
         "tomcat" // We will use this as a keyword
     };
 
@@ -33,24 +33,34 @@ public class Thalamus {
     }
 
 private int getPidByJarName(String organName) {
-        try {
-            // jcmd -l shows the main class or JAR for Java processes
-            Process p = Runtime.getRuntime().exec("jcmd -l");
-            BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                // Check if it's a standard JAR organ
-                if (line.contains(organName)) {
-                    return Integer.parseInt(line.split(" ")[0]);
-                }
-                // Special check for Tomcat
-                if (organName.equals("tomcat") && line.contains("org.apache.catalina.startup.Bootstrap")) {
-                    return Integer.parseInt(line.split(" ")[0]);
+    try {
+        // We use ps -ef to see EVERY process and its full command line
+        Process p = Runtime.getRuntime().exec("ps -ef");
+        BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+        String line;
+        
+        while ((line = reader.readLine()) != null) {
+            // Logic for standard Teleonome Organs (JARs)
+            if (!organName.equals("tomcat") && line.contains(organName)) {
+                // ps -ef output format: UID  PID  PPID  C STIME TTY  TIME CMD
+                // We need the second column
+                String[] parts = line.trim().split("\\s+");
+                return Integer.parseInt(parts[1]);
+            }
+            
+            // Specialized Logic for your Tomcat path
+            if (organName.equals("tomcat")) {
+                if (line.contains("org.apache.catalina.startup.Bootstrap") && 
+                    line.contains("/home/pi/Teleonome/tomcat")) {
+                    
+                    String[] parts = line.trim().split("\\s+");
+                    return Integer.parseInt(parts[1]);
                 }
             }
-        } catch (Exception ignored) {}
-        return -1;
-    }
+        }
+    } catch (Exception ignored) {}
+    return -1;
+}
     public void startRelay() {
         while (true) {
             try {

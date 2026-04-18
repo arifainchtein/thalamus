@@ -15,13 +15,13 @@ import java.util.Map;
  */
 public class Thalamus {
 
-    // These should match the names inside your Start...BG.sh scripts
+// Updated list to include Tomcat
     private static final String[] ORGANS = {
         "Heart.jar", 
-        "Webserver.jar", 
         "Hypothalamus.jar", 
         "Hippocampus.jar",
-        "Medula.jar"
+        "Medulla.jar",
+        "tomcat" // We will use this as a keyword
     };
 
     private static final String DENOME_PATH = "/home/pi/Teleonome/Teleonome.denome";
@@ -32,6 +32,25 @@ public class Thalamus {
         t.startRelay();
     }
 
+private int getPidByJarName(String organName) {
+        try {
+            // jcmd -l shows the main class or JAR for Java processes
+            Process p = Runtime.getRuntime().exec("jcmd -l");
+            BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                // Check if it's a standard JAR organ
+                if (line.contains(organName)) {
+                    return Integer.parseInt(line.split(" ")[0]);
+                }
+                // Special check for Tomcat
+                if (organName.equals("tomcat") && line.contains("org.apache.catalina.startup.Bootstrap")) {
+                    return Integer.parseInt(line.split(" ")[0]);
+                }
+            }
+        } catch (Exception ignored) {}
+        return -1;
+    }
     public void startRelay() {
         while (true) {
             try {

@@ -30,6 +30,7 @@ public class Thalamus {
     private static final String SEP_D;        // ══════...  (W chars)
     private static final String SEP_S;        // ──────...  (W chars)
     // Memory panel columns
+    private static final int    LAST_W   = 7; // "last update" age column, e.g. "   42s"
     private static final int    BAR_W;        // health-bar block count
     private static final int    LEFT_COL;     // visible chars in left organ column
     private static final int    RIGHT_COL;    // visible chars in right source column
@@ -58,8 +59,9 @@ public class Thalamus {
 
         // Memory panel: bar capped at 40 blocks; left col wraps it exactly
         int bw = Math.min(40, W / 2 - 33);
-        BAR_W     = Math.max(10, bw);            // at least 10 blocks
-        LEFT_COL  = BAR_W + 33;                  // 1+16+1+7+1+[BAR_W+2]+5
+        BAR_W     = Math.max(10, bw);
+        // 1+16+1+7+1+[BAR_W+2]+1+3+1 (pct) +1+LAST_W (age) = BAR_W+34+LAST_W
+        LEFT_COL  = BAR_W + 34 + LAST_W;
         RIGHT_COL = W - LEFT_COL - 4;            // " │  " = 4 chars
 
         // MQTT panel
@@ -123,7 +125,8 @@ public class Thalamus {
     private volatile boolean showCommandList = false;
 
     // Cached stats so prompt keystrokes can trigger a fast re-render
-    private volatile Map<String, Integer> lastStats = new HashMap<>();
+    private volatile Map<String, Integer> lastStats       = new HashMap<>();
+    private volatile Map<String, Long>    lastUpdateCache = new HashMap<>();
 
     // =========================================================
     // Command table — used for autocomplete and help display
@@ -169,7 +172,8 @@ public class Thalamus {
     public void startRelay() {
         while (true) {
             try {
-                lastStats = getMemoryUsage();
+                lastStats       = getMemoryUsage();
+                lastUpdateCache = getLastUpdates();
                 renderDashboard(lastStats);
                 writeJson(lastStats);
                 renderNeeded = false;
@@ -499,6 +503,52 @@ public class Thalamus {
     // Memory polling
     // =========================================================
 
+    // =========================================================
+    // Last-update timestamps
+    // =========================================================
+
+    /** Returns a map of organ → epoch-millis of its last status update. */
+    private Map<String, Long> getLastUpdates() {
+        Map<String, Long> m = new HashMap<>();
+        String base = "/home/pi/Teleonome/";
+        for (String jar : ORGANS) {
+            long ts = 0;
+            try {
+                if      (jar.equals("Cerebellum.jar"))   ts = readJsonTimestamp(base + "CerebellumStatus.json");
+                else if (jar.equals("Hippocampus.jar"))  ts = readJsonTimestamp(base + "HippocampusStatus.json");
+                else if (jar.equals("Heart.jar"))        ts = new File(base + "heart/HeartPing.info").lastModified();
+                else if (jar.equals("Hypothalamus.jar")) ts = new File(base + "Teleonome.denome").lastModified();
+                else if (jar.equals("tomcat"))           ts = new File(base + "WebServerPing.info").lastModified();
+                // Medula, others: no status file specified — leave ts=0
+            } catch (Exception ignored) {}
+            m.put(jar, ts);
+        }
+        return m;
+    }
+
+    /** Parse "Timestamp Milliseconds": <number> from a simple JSON status file. */
+    private long readJsonTimestamp(String path) {
+        try (BufferedReader r = new BufferedReader(new FileReader(path))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.contains("Timestamp Milliseconds")) {
+                    String num = line.replaceAll("[^0-9]", "");
+                    if (!num.isEmpty()) return Long.parseLong(num);
+                }
+            }
+        } catch (Exception ignored) {}
+        return 0;
+    }
+
+    /** Format millisecond epoch as a right-justified LAST_W-char age string, e.g. "   42s". */
+    private String formatAge(long millis) {
+        if (millis <= 0) return String.format("%" + LAST_W + "s", "?");
+        long s = Math.max(0, (System.currentTimeMillis() - millis) / 1000);
+        if (s < 60)   return String.format("%"+(LAST_W-1)+"ds", s);           // "   42s"
+        if (s < 3600) return String.format("%"+(LAST_W-4)+"dm%02d", s/60, s%60); // " 5m30"
+        return         String.format("%"+(LAST_W-4)+"dh%02d", s/3600, (s%3600)/60); // " 1h23"
+    }
+
     /** PID lookup via ps -ef — used as fallback and for Tomcat (which jcmd -l can't see). */
     private int getPidByJarName(String organName) {
         try {
@@ -600,8 +650,9 @@ public class Thalamus {
         List<String> sources = getActiveSources();
         sb.append(String.format("%"+(LEFT_COL-24)+"s │  \033[32mACTIVE SOURCES\033[0m (%d)\n", "", sources.size()));
 
-        sb.append(String.format(" %-16s %-7s %-"+(BAR_W+2)+"s %4s │  %s\n",
-            "ORGAN", "RSS", "HEALTH", "%", "DEVICE / SOURCE"));
+        // header: ORGAN RSS HEALTH % AGO │ DEVICE/SOURCE
+        sb.append(String.format(" %-16s %-7s %-"+(BAR_W+2)+"s %3s %-"+LAST_W+"s │  %s\n",
+            "ORGAN", "RSS", "HEALTH", "%", "AGO", "DEVICE / SOURCE"));
         sb.append(SEP_S).append('\n');
 
         int rows = Math.max(ORGANS.length, sources.size());
@@ -612,10 +663,11 @@ public class Thalamus {
                 String name = jar.replace(".jar", "");
                 int used    = stats.getOrDefault(jar, 0);
                 int limit   = name.equals("Hippocampus") ? 384 : 128;
+                String age  = formatAge(lastUpdateCache.getOrDefault(jar, 0L));
                 if (used == 0) {
-                    // "[OFFLINE]" is 9 visible chars; pad to LEFT_COL
-                    sb.append(String.format(" %-16s %-7s \033[31m[OFFLINE]\033[0m%-"+(LEFT_COL-36)+"s",
-                        name, "---", ""));
+                    // offline: pad bar slot with [OFFLINE] left-justified, then show age
+                    sb.append(String.format(" %-16s %-7s \033[31m%-"+(BAR_W+2)+"s\033[0m     %s",
+                        name, "---", "[OFFLINE]", age));
                 } else {
                     double pct = (double) used / limit;
                     String c = pct > 0.9 ? "\033[31m" : pct > 0.7 ? "\033[33m" : "\033[32m";
@@ -623,8 +675,8 @@ public class Thalamus {
                     int filled = (int) (BAR_W * Math.min(pct, 1.0));
                     for (int i = 0; i < BAR_W; i++) bar.append(i < filled ? "█" : "░");
                     bar.append("]");
-                    sb.append(String.format(" %-16s %-7s %s%s\033[0m %3d%%",
-                        name, used + "MB", c, bar, (int)(pct * 100)));
+                    sb.append(String.format(" %-16s %-7s %s%s\033[0m %3d%% %s",
+                        name, used + "MB", c, bar, (int)(pct * 100), age));
                 }
             } else {
                 sb.append(String.format("%-"+LEFT_COL+"s", ""));

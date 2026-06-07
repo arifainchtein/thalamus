@@ -83,7 +83,7 @@ public class Thalamus {
     // =========================================================
     // Build number — replaced by maven-replacer-plugin at build time
     // =========================================================
-    private String buildNumber="dev";
+    private static String buildNumber="07/06/2026 17:04";
 
     // =========================================================
     // Data models
@@ -498,6 +498,27 @@ public class Thalamus {
     // =========================================================
     // Memory polling
     // =========================================================
+
+    /** PID lookup via ps -ef — used as fallback and for Tomcat (which jcmd -l can't see). */
+    private int getPidByJarName(String organName) {
+        try {
+            Process p = Runtime.getRuntime().exec("ps -ef");
+            BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (organName.equals("tomcat")) {
+                    if (line.contains("org.apache.catalina.startup.Bootstrap") &&
+                        line.contains("/home/pi/Teleonome/tomcat")) {
+                        return Integer.parseInt(line.trim().split("\\s+")[1]);
+                    }
+                } else if (line.contains(organName)) {
+                    return Integer.parseInt(line.trim().split("\\s+")[1]);
+                }
+            }
+        } catch (Exception ignored) {}
+        return -1;
+    }
+
     private Map<String, Integer> getMemoryUsage() {
         Map<String, Integer> stats = new HashMap<>();
         for (String jar : ORGANS) {

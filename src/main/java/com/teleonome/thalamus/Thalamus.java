@@ -65,7 +65,7 @@ public class Thalamus {
         RIGHT_COL = W - LEFT_COL - 4;            // " │  " = 4 chars
 
         // MQTT panel
-        MQTT_TOPIC_W   = Math.min(60, W / 3);
+        MQTT_TOPIC_W   = Math.min(30, W / 5);
         MQTT_PAYLOAD_W = W - 1 - 10 - 1 - MQTT_TOPIC_W - 1;
 
         // Log panel

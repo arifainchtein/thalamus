@@ -33,7 +33,9 @@ public class Thalamus {
     private static final int    LAST_W   = 7; // "last update" age column, e.g. "   42s"
     private static final int    BAR_W;        // health-bar block count
     private static final int    LEFT_COL;     // visible chars in left organ column
-    private static final int    RIGHT_COL;    // visible chars in right source column
+    private static final int    RIGHT_COL;    // visible chars in right panel
+    private static final int    HIPPO_COL;    // chars allocated to Hippocampus status block
+    private static final int    HIPPO_VAR_W;  // chars per sub-column inside Hippocampus block
     // MQTT panel columns
     private static final int    MQTT_TOPIC_W;
     private static final int    MQTT_PAYLOAD_W;
@@ -63,6 +65,8 @@ public class Thalamus {
         // 1+16+1+7+1+[BAR_W+2]+1+3+1 (pct) +1+LAST_W (age) = BAR_W+34+LAST_W
         LEFT_COL  = BAR_W + 34 + LAST_W;
         RIGHT_COL = W - LEFT_COL - 4;            // " │  " = 4 chars
+        HIPPO_COL   = RIGHT_COL / 2;             // left half of right panel → Hippocampus
+        HIPPO_VAR_W = (HIPPO_COL - 2) / 2;      // 2 sub-columns with 2-char gap between them
 
         // MQTT panel
         MQTT_TOPIC_W   = Math.min(30, W / 5);
@@ -125,8 +129,9 @@ public class Thalamus {
     private volatile boolean showCommandList = false;
 
     // Cached stats so prompt keystrokes can trigger a fast re-render
-    private volatile Map<String, Integer> lastStats       = new HashMap<>();
-    private volatile Map<String, Long>    lastUpdateCache = new HashMap<>();
+    private volatile Map<String, Integer>        lastStats       = new HashMap<>();
+    private volatile Map<String, Long>           lastUpdateCache = new HashMap<>();
+    private volatile Map<String, List<String[]>> organStatus     = new HashMap<>();
 
     // =========================================================
     // Command table — used for autocomplete and help display
@@ -174,6 +179,7 @@ public class Thalamus {
             try {
                 lastStats       = getMemoryUsage();
                 lastUpdateCache = getLastUpdates();
+                organStatus     = getOrganStatuses();
                 renderDashboard(lastStats);
                 writeJson(lastStats);
                 renderNeeded = false;
@@ -680,44 +686,41 @@ public class Thalamus {
         } else {
             sb.append(" Denome: \033[31mFILE MISSING\033[0m");
         }
-        List<String> sources = getActiveSources();
-        sb.append(String.format("%"+(LEFT_COL-24)+"s │  \033[32mACTIVE SOURCES\033[0m (%d)\n", "", sources.size()));
+        sb.append(String.format("%"+(LEFT_COL-24)+"s │  \033[36mHIPPOCAMPUS STATUS\033[0m\n", ""));
 
-        // header: ORGAN RSS HEALTH % AGO │ DEVICE/SOURCE
-        sb.append(String.format(" %-16s %-7s %-"+(BAR_W+2)+"s %3s %-"+LAST_W+"s │  %s\n",
-            "ORGAN", "RSS", "HEALTH", "%", "AGO", "DEVICE / SOURCE"));
+        // header: ORGAN RSS HEALTH % AGO │ (status sub-columns)
+        sb.append(String.format(" %-16s %-7s %-"+(BAR_W+2)+"s %3s %-"+LAST_W+"s │\n",
+            "ORGAN", "RSS", "HEALTH", "%", "AGO"));
         sb.append(SEP_S).append('\n');
 
-        int rows = Math.max(ORGANS.length, sources.size());
-        for (int row = 0; row < rows; row++) {
+        List<String[]> hippoData = organStatus.getOrDefault("Hippocampus.jar", new ArrayList<>());
+        for (int row = 0; row < ORGANS.length; row++) {
             // --- left: organ row ---
-            if (row < ORGANS.length) {
-                String jar  = ORGANS[row];
-                String name = jar.replace(".jar", "");
-                int used    = stats.getOrDefault(jar, 0);
-                int limit   = name.equals("Hippocampus") ? 384 : 128;
-                String age  = formatAge(lastUpdateCache.getOrDefault(jar, 0L));
-                if (used == 0) {
-                    // offline: pad bar slot with [OFFLINE] left-justified, then show age
-                    sb.append(String.format(" %-16s %-7s \033[31m%-"+(BAR_W+2)+"s\033[0m      %s",
-                        name, "---", "[OFFLINE]", age));
-                } else {
-                    double pct = (double) used / limit;
-                    String c = pct > 0.9 ? "\033[31m" : pct > 0.7 ? "\033[33m" : "\033[32m";
-                    StringBuilder bar = new StringBuilder("[");
-                    int filled = (int) (BAR_W * Math.min(pct, 1.0));
-                    for (int i = 0; i < BAR_W; i++) bar.append(i < filled ? "█" : "░");
-                    bar.append("]");
-                    sb.append(String.format(" %-16s %-7s %s%s\033[0m %3d%% %s",
-                        name, used + "MB", c, bar, (int)(pct * 100), age));
-                }
+            String jar  = ORGANS[row];
+            String name = jar.replace(".jar", "");
+            int used    = stats.getOrDefault(jar, 0);
+            int limit   = name.equals("Hippocampus") ? 384 : 128;
+            String age  = formatAge(lastUpdateCache.getOrDefault(jar, 0L));
+            if (used == 0) {
+                sb.append(String.format(" %-16s %-7s \033[31m%-"+(BAR_W+2)+"s\033[0m      %s",
+                    name, "---", "[OFFLINE]", age));
             } else {
-                sb.append(String.format("%-"+LEFT_COL+"s", ""));
+                double pct = (double) used / limit;
+                String c = pct > 0.9 ? "\033[31m" : pct > 0.7 ? "\033[33m" : "\033[32m";
+                StringBuilder bar = new StringBuilder("[");
+                int filled = (int) (BAR_W * Math.min(pct, 1.0));
+                for (int i = 0; i < BAR_W; i++) bar.append(i < filled ? "█" : "░");
+                bar.append("]");
+                sb.append(String.format(" %-16s %-7s %s%s\033[0m %3d%% %s",
+                    name, used + "MB", c, bar, (int)(pct * 100), age));
             }
 
-            // --- separator + right: source row ---
-            String src = row < sources.size() ? sources.get(row) : "";
-            sb.append(String.format(" │  %-"+RIGHT_COL+"s\n", trunc(src, RIGHT_COL)));
+            // --- right: two Hippocampus key-value pairs per row ---
+            String[] p1 = (row * 2)     < hippoData.size() ? hippoData.get(row * 2)     : null;
+            String[] p2 = (row * 2 + 1) < hippoData.size() ? hippoData.get(row * 2 + 1) : null;
+            String col1 = String.format("%-"+HIPPO_VAR_W+"s", p1 != null ? fmtKV(p1) : "");
+            String col2 = String.format("%-"+HIPPO_VAR_W+"s", p2 != null ? fmtKV(p2) : "");
+            sb.append(String.format(" │  %-"+RIGHT_COL+"s\n", col1 + "  " + col2));
         }
     }
 
@@ -737,6 +740,48 @@ public class Thalamus {
             }
         }
         return new ArrayList<>(seen);
+    }
+
+    // =========================================================
+    // Organ status JSON
+    // =========================================================
+
+    /** Reads all key-value pairs from status JSON files for organs that have them. */
+    private Map<String, List<String[]>> getOrganStatuses() {
+        Map<String, List<String[]>> m = new HashMap<>();
+        String base = "/home/pi/Teleonome/";
+        m.put("Hippocampus.jar", readStatusJson(base + "HippocampusStatus.json"));
+        m.put("Cerebellum.jar",  readStatusJson(base + "CerebellumStatus.json"));
+        return m;
+    }
+
+    /** Parses a flat JSON file into an ordered list of [key, value] pairs, skipping timestamp/pid fields. */
+    private List<String[]> readStatusJson(String path) {
+        List<String[]> pairs = new ArrayList<>();
+        try (BufferedReader r = new BufferedReader(new FileReader(path))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                line = line.trim();
+                if (!line.startsWith("\"")) continue;
+                int sep = line.indexOf("\":");
+                if (sep < 0) continue;
+                String key = line.substring(1, sep);
+                String kl  = key.toLowerCase();
+                if (kl.contains("timestamp") || kl.endsWith("pid")) continue;
+                String val = line.substring(sep + 2).trim();
+                if (val.endsWith(",")) val = val.substring(0, val.length() - 1).trim();
+                val = val.replace("\"", "");
+                if (!val.isEmpty()) pairs.add(new String[]{key, val});
+            }
+        } catch (Exception ignored) {}
+        return pairs;
+    }
+
+    /** Formats a [key, value] pair into a fixed-width string for the status panel sub-column. */
+    private String fmtKV(String[] kv) {
+        int keyW = HIPPO_VAR_W * 2 / 5;
+        int valW = HIPPO_VAR_W - keyW - 2;
+        return String.format("%-"+keyW+"s: %-"+valW+"s", trunc(kv[0], keyW), trunc(kv[1], valW));
     }
 
     // ----- Panel 2: MQTT -----

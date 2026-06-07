@@ -578,13 +578,43 @@ public class Thalamus {
     }
 
     private Map<String, Integer> getMemoryUsage() {
+        // Run jcmd -l once to collect all JVM PIDs in one shot
+        Map<String, Integer> jcmdPids = new HashMap<>();
+        try {
+            Process p = Runtime.getRuntime().exec("jcmd -l");
+            BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
+            String line;
+            while ((line = r.readLine()) != null) {
+                for (String jar : ORGANS) {
+                    if (line.contains(jar)) {
+                        try { jcmdPids.put(jar, Integer.parseInt(line.split(" ")[0])); } catch (Exception ignored) {}
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
         Map<String, Integer> stats = new HashMap<>();
         for (String jar : ORGANS) {
             try {
-                // jcmd -l relies on /tmp/hsperfdata_* files that linger after a kill,
-                // which can return a stale PID that has since been reused by another process.
-                // ps -ef is always accurate: a process either exists in the kernel table or it doesn't.
-                int pid = getPidByJarName(jar);
+                int pid = -1;
+
+                // Validate the jcmd PID against /proc: if the process died, its /proc entry
+                // is gone immediately, so a stale hsperfdata entry pointing at a recycled PID
+                // will fail this check and be rejected.
+                if (jcmdPids.containsKey(jar)) {
+                    int candidate = jcmdPids.get(jar);
+                    try {
+                        byte[] cmdline = java.nio.file.Files.readAllBytes(
+                            java.nio.file.Paths.get("/proc/" + candidate + "/cmdline"));
+                        String cmd = new String(cmdline).replace('\0', ' ');
+                        boolean match = jar.equals("tomcat") ? cmd.contains("Bootstrap") : cmd.contains(jar);
+                        if (match) pid = candidate;
+                    } catch (Exception ignored) {} // /proc/<pid> gone → stale entry, leave pid=-1
+                }
+
+                // Fallback: scan ps -ef by name (handles Tomcat and cases where jcmd missed it)
+                if (pid == -1) pid = getPidByJarName(jar);
+
                 if (pid != -1) {
                     Process pm = Runtime.getRuntime().exec("ps -p " + pid + " -o rss=");
                     BufferedReader rm = new BufferedReader(new InputStreamReader(pm.getInputStream()));

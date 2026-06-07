@@ -25,14 +25,49 @@ public class Thalamus {
     private static final String[] ORGANS = {
         "Heart.jar", "Hypothalamus.jar", "Hippocampus.jar", "Medula.jar", "Cerebellum.jar", "tomcat"
     };
-    // Separator lines — change W to resize the whole display
-    private static final int    W     = 100;
-    private static final String SEP_D;   // ══════...
-    private static final String SEP_S;   // ──────...
+    // Layout — all column widths are derived from the detected terminal width
+    private static final int    W;            // terminal width, detected at startup
+    private static final String SEP_D;        // ══════...  (W chars)
+    private static final String SEP_S;        // ──────...  (W chars)
+    // Memory panel columns
+    private static final int    BAR_W;        // health-bar block count
+    private static final int    LEFT_COL;     // visible chars in left organ column
+    private static final int    RIGHT_COL;    // visible chars in right source column
+    // MQTT panel columns
+    private static final int    MQTT_TOPIC_W;
+    private static final int    MQTT_PAYLOAD_W;
+    // Log panel columns
+    private static final int    LOG_SOURCE_W  = 30;
+    private static final int    LOG_MSG_W;
+
     static {
+        // Detect terminal width via tput; fall back to 200 (wide/full-screen default)
+        int w = 200;
+        try {
+            Process p = Runtime.getRuntime().exec(new String[]{"sh", "-c", "tput cols </dev/tty"});
+            String line = new java.io.BufferedReader(
+                new java.io.InputStreamReader(p.getInputStream())).readLine();
+            if (line != null) w = Integer.parseInt(line.trim());
+        } catch (Exception ignored) {}
+        W = w;
+
+        // Separators
         StringBuilder d = new StringBuilder(W), s = new StringBuilder(W);
         for (int i = 0; i < W; i++) { d.append('═'); s.append('─'); }
         SEP_D = d.toString(); SEP_S = s.toString();
+
+        // Memory panel: bar capped at 40 blocks; left col wraps it exactly
+        int bw = Math.min(40, W / 2 - 33);
+        BAR_W     = Math.max(10, bw);            // at least 10 blocks
+        LEFT_COL  = BAR_W + 33;                  // 1+16+1+7+1+[BAR_W+2]+5
+        RIGHT_COL = W - LEFT_COL - 4;            // " │  " = 4 chars
+
+        // MQTT panel
+        MQTT_TOPIC_W   = Math.min(60, W / 3);
+        MQTT_PAYLOAD_W = W - 1 - 10 - 1 - MQTT_TOPIC_W - 1;
+
+        // Log panel
+        LOG_MSG_W = W - 1 - 10 - 1 - 7 - 1 - LOG_SOURCE_W - 1;
     }
 
     private static final String DENOME_PATH       = "/home/pi/Teleonome/Teleonome.denome";
@@ -468,12 +503,18 @@ public class Thalamus {
         for (String jar : ORGANS) {
             int pid = -1;
             try {
+                // jcmd -l lists JVM processes by JAR path or main class name.
+                // Tomcat appears as "org.apache.catalina.startup.Bootstrap", not "tomcat",
+                // so it never matches here — getPidByJarName() is the fallback for that case.
                 Process p = Runtime.getRuntime().exec("jcmd -l");
                 BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
                 String line;
                 while ((line = r.readLine()) != null) {
                     if (line.contains(jar)) { pid = Integer.parseInt(line.split(" ")[0]); break; }
                 }
+                // Fallback: use ps -ef (handles Tomcat and any process jcmd can't see)
+                if (pid == -1) pid = getPidByJarName(jar);
+
                 if (pid != -1) {
                     Process pm = Runtime.getRuntime().exec("ps -p " + pid + " -o rss=");
                     BufferedReader rm = new BufferedReader(new InputStreamReader(pm.getInputStream()));
@@ -522,14 +563,6 @@ public class Thalamus {
     }
 
     // ----- Panel 1: Memory (left) + Active Sources (right) -----
-    //
-    // Layout at W=100:
-    //   left  55 chars │  right 41 chars
-    //   " %-16s %-7s [22 blocks] %3d%%  │  source name"
-    private static final int LEFT_COL  = 55;
-    private static final int BAR_W     = 22;  // block chars inside [...]
-    private static final int RIGHT_COL = W - LEFT_COL - 4; // 4 = " │  "
-
     private void renderMemory(StringBuilder sb, Map<String, Integer> stats) {
         sb.append(SEP_D).append('\n');
         sb.append(String.format(" THALAMUS [%s]   %s\n", buildNumber, new SimpleDateFormat("HH:mm:ss").format(new Date())));
@@ -613,17 +646,16 @@ public class Thalamus {
             ? "\033[33mfilter: " + mqttFilter + "\033[0m"
             : "\033[32mall\033[0m";
         sb.append(String.format(" MQTT [%s]  %d msgs\n", fl, visible.size()));
-        // TIME(10) + TOPIC(45) + PAYLOAD(rest ~41) = ~99
-        sb.append(String.format(" %-10s %-45s %s\n", "TIME", "TOPIC", "PAYLOAD"));
+        sb.append(String.format(" %-10s %-"+MQTT_TOPIC_W+"s %s\n", "TIME", "TOPIC", "PAYLOAD"));
         sb.append(SEP_S).append('\n');
 
         int start = Math.max(0, visible.size() - MQTT_ROWS);
         int shown = 0;
         for (int i = start; i < visible.size(); i++) {
             MqttEntry e = visible.get(i);
-            String topic   = trunc(e.topic,   44);
-            String payload = trunc(e.payload, 40);
-            sb.append(String.format(" %-10s \033[36m%-45s\033[0m %s\n",
+            String topic   = trunc(e.topic,   MQTT_TOPIC_W);
+            String payload = trunc(e.payload, MQTT_PAYLOAD_W);
+            sb.append(String.format(" %-10s \033[36m%-"+MQTT_TOPIC_W+"s\033[0m %s\n",
                 e.ts, topic, payload));
             shown++;
         }
@@ -655,8 +687,7 @@ public class Thalamus {
             ? "\033[33mfilter: " + logFilter + "\033[0m"
             : "\033[32mall\033[0m";
         sb.append(String.format(" LOGS [%s]\n", fl));
-        // TIME(10) + LEVEL(7) + SOURCE(30) + MESSAGE(rest ~48) ≈ 99
-        sb.append(String.format(" %-10s %-7s %-30s %s\n", "TIME", "LEVEL", "SOURCE", "MESSAGE"));
+        sb.append(String.format(" %-10s %-7s %-"+LOG_SOURCE_W+"s %s\n", "TIME", "LEVEL", "SOURCE", "MESSAGE"));
         sb.append(SEP_S).append('\n');
 
         int start = Math.max(0, visible.size() - LOG_ROWS);
@@ -664,9 +695,9 @@ public class Thalamus {
         for (int i = start; i < visible.size(); i++) {
             LogEntry e = visible.get(i);
             String c   = levelColor(e.level);
-            String msg = trunc(e.message, 48);
-            sb.append(String.format(" %-10s %s%-7s\033[0m %-30s %s\n",
-                e.ts, c, e.level, trunc(e.source, 30), msg));
+            String msg = trunc(e.message, LOG_MSG_W);
+            sb.append(String.format(" %-10s %s%-7s\033[0m %-"+LOG_SOURCE_W+"s %s\n",
+                e.ts, c, e.level, trunc(e.source, LOG_SOURCE_W), msg));
             shown++;
         }
         for (int i = shown; i < LOG_ROWS; i++) sb.append("\n");

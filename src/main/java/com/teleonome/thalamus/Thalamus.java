@@ -691,15 +691,27 @@ public class Thalamus {
             denomeVis  = " Denome: FILE MISSING";
         }
         int pad = Math.max(0, LEFT_COL - denomeVis.length());
+        // Extract hippoData now so we can use lastMessage in the header
+        List<String[]> hippoData = organStatus.getOrDefault("Hippocampus.jar", new ArrayList<>());
+        String hippoLastMsg = "";
+        List<String[]> hippoDisplay = new ArrayList<>();
+        for (String[] kv : hippoData) {
+            if (kv[0].toLowerCase().contains("last") && kv[0].toLowerCase().contains("message")) {
+                try { hippoLastMsg = new SimpleDateFormat("HH:mm:ss dd/MM").format(new Date(Long.parseLong(kv[1].trim()))); }
+                catch (Exception ignored) { hippoLastMsg = kv[1]; }
+            } else {
+                hippoDisplay.add(kv);
+            }
+        }
+
         sb.append(denomeAnsi);
         sb.append(String.format("%-"+pad+"s │  \033[36mHIPPOCAMPUS STATUS\033[0m\n", ""));
 
-        // header: ORGAN RSS HEALTH % AGO │ (status sub-columns)
-        sb.append(String.format(" %-16s %-7s %-"+(BAR_W+2)+"s %3s %-"+LAST_W+"s │\n",
-            "ORGAN", "RSS", "HEALTH", "%", "AGO"));
+        // header row 2: ORGAN RSS HEALTH % AGO │ last message timestamp
+        sb.append(String.format(" %-16s %-7s %-"+(BAR_W+2)+"s %3s %-"+LAST_W+"s │  %s\n",
+            "ORGAN", "RSS", "HEALTH", "%", "AGO",
+            hippoLastMsg.isEmpty() ? "" : "\033[2mLast msg: " + hippoLastMsg + "\033[0m"));
         sb.append(SEP_S).append('\n');
-
-        List<String[]> hippoData = organStatus.getOrDefault("Hippocampus.jar", new ArrayList<>());
         for (int row = 0; row < ORGANS.length; row++) {
             // --- left: organ row ---
             String jar  = ORGANS[row];
@@ -722,8 +734,8 @@ public class Thalamus {
             }
 
             // --- right: two Hippocampus key-value pairs per row ---
-            String[] p1 = (row * 2)     < hippoData.size() ? hippoData.get(row * 2)     : null;
-            String[] p2 = (row * 2 + 1) < hippoData.size() ? hippoData.get(row * 2 + 1) : null;
+            String[] p1 = (row * 2)     < hippoDisplay.size() ? hippoDisplay.get(row * 2)     : null;
+            String[] p2 = (row * 2 + 1) < hippoDisplay.size() ? hippoDisplay.get(row * 2 + 1) : null;
             String col1 = String.format("%-"+HIPPO_VAR_W+"s", p1 != null ? fmtKV(p1) : "");
             String col2 = String.format("%-"+HIPPO_VAR_W+"s", p2 != null ? fmtKV(p2) : "");
             sb.append(String.format(" │  %-"+RIGHT_COL+"s\n", col1 + "  " + col2));
@@ -786,21 +798,17 @@ public class Thalamus {
             }
         } catch (Exception ignored) {}
 
-        // Merge consecutive "name"/"value" pairs into one display entry
-        List<String[]> result = new ArrayList<>();
-        String pendingName = null;
+        // Two-pass merge: find "name" and "value" keys regardless of their order in the file
+        String nameVal = null, valueVal = null;
+        List<String[]> otherPairs = new ArrayList<>();
         for (String[] kv : raw) {
-            if (kv[0].equalsIgnoreCase("name")) {
-                pendingName = kv[1];
-            } else if (kv[0].equalsIgnoreCase("value") && pendingName != null) {
-                result.add(new String[]{titleCase(pendingName), kv[1]});
-                pendingName = null;
-            } else {
-                if (pendingName != null) { result.add(new String[]{"name", pendingName}); pendingName = null; }
-                result.add(kv);
-            }
+            if (kv[0].equalsIgnoreCase("name"))       nameVal  = kv[1];
+            else if (kv[0].equalsIgnoreCase("value"))  valueVal = kv[1];
+            else                                       otherPairs.add(kv);
         }
-        if (pendingName != null) result.add(new String[]{"name", pendingName});
+        List<String[]> result = new ArrayList<>();
+        if (nameVal != null && valueVal != null) result.add(new String[]{titleCase(nameVal), valueVal});
+        result.addAll(otherPairs);
         return result;
     }
 

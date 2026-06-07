@@ -540,13 +540,17 @@ public class Thalamus {
         return 0;
     }
 
-    /** Format millisecond epoch as a right-justified LAST_W-char age string, e.g. "   42s". */
+    /** Format millisecond epoch as a right-justified LAST_W-char age string with background color when stale. */
     private String formatAge(long millis) {
         if (millis <= 0) return String.format("%" + LAST_W + "s", "?");
         long s = Math.max(0, (System.currentTimeMillis() - millis) / 1000);
-        if (s < 60)   return String.format("%"+(LAST_W-1)+"ds", s);           // "   42s"
-        if (s < 3600) return String.format("%"+(LAST_W-4)+"dm%02d", s/60, s%60); // " 5m30"
-        return         String.format("%"+(LAST_W-4)+"dh%02d", s/3600, (s%3600)/60); // " 1h23"
+        String text;
+        if (s < 60)   text = String.format("%"+(LAST_W-1)+"ds", s);
+        else if (s < 3600) text = String.format("%"+(LAST_W-4)+"dm%02d", s/60, s%60);
+        else          text = String.format("%"+(LAST_W-4)+"dh%02d", s/3600, (s%3600)/60);
+        if (s >= 120) return "\033[48;5;217m\033[38;5;88m"  + text + "\033[0m"; // soft rose bg, dark red text
+        if (s >= 60)  return "\033[48;5;229m\033[38;5;130m" + text + "\033[0m"; // soft yellow bg, dark amber text
+        return text;
     }
 
     /** PID lookup via ps -ef — used as fallback and for Tomcat (which jcmd -l can't see). */
@@ -572,29 +576,24 @@ public class Thalamus {
     private Map<String, Integer> getMemoryUsage() {
         Map<String, Integer> stats = new HashMap<>();
         for (String jar : ORGANS) {
-            int pid = -1;
             try {
-                // jcmd -l lists JVM processes by JAR path or main class name.
-                // Tomcat appears as "org.apache.catalina.startup.Bootstrap", not "tomcat",
-                // so it never matches here — getPidByJarName() is the fallback for that case.
-                Process p = Runtime.getRuntime().exec("jcmd -l");
-                BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()));
-                String line;
-                while ((line = r.readLine()) != null) {
-                    if (line.contains(jar)) { pid = Integer.parseInt(line.split(" ")[0]); break; }
-                }
-                // Fallback: use ps -ef (handles Tomcat and any process jcmd can't see)
-                if (pid == -1) pid = getPidByJarName(jar);
-
+                // jcmd -l relies on /tmp/hsperfdata_* files that linger after a kill,
+                // which can return a stale PID that has since been reused by another process.
+                // ps -ef is always accurate: a process either exists in the kernel table or it doesn't.
+                int pid = getPidByJarName(jar);
                 if (pid != -1) {
                     Process pm = Runtime.getRuntime().exec("ps -p " + pid + " -o rss=");
                     BufferedReader rm = new BufferedReader(new InputStreamReader(pm.getInputStream()));
                     String ml = rm.readLine();
-                    if (ml != null) stats.put(jar, Integer.parseInt(ml.trim()) / 1024);
-                } else {
-                    stats.put(jar, 0);
+                    if (ml != null && !ml.trim().isEmpty()) {
+                        int kb = Integer.parseInt(ml.trim());
+                        if (kb > 0) { stats.put(jar, kb / 1024); continue; }
+                    }
                 }
-            } catch (Exception ignored) {}
+                stats.put(jar, 0);
+            } catch (Exception ignored) {
+                stats.put(jar, 0);
+            }
         }
         return stats;
     }
@@ -666,7 +665,7 @@ public class Thalamus {
                 String age  = formatAge(lastUpdateCache.getOrDefault(jar, 0L));
                 if (used == 0) {
                     // offline: pad bar slot with [OFFLINE] left-justified, then show age
-                    sb.append(String.format(" %-16s %-7s \033[31m%-"+(BAR_W+2)+"s\033[0m     %s",
+                    sb.append(String.format(" %-16s %-7s \033[31m%-"+(BAR_W+2)+"s\033[0m      %s",
                         name, "---", "[OFFLINE]", age));
                 } else {
                     double pct = (double) used / limit;

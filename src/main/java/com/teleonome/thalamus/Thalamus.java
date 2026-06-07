@@ -222,9 +222,13 @@ public class Thalamus {
                 catch (Exception e) { tty = System.in; }
 
                 StringBuilder buf = new StringBuilder();
+                boolean lastWasCR = false;
                 while (true) {
                     int ch = tty.read();
                     if (ch == -1) break;
+                    // SSH terminals send \r\n for Enter; swallow the \n so we only see one event
+                    if (ch == 10 && lastWasCR) { lastWasCR = false; continue; }
+                    lastWasCR = (ch == 13);
 
                     if (ch == 9) {                            // Tab → accept suggestion
                         String sug = suggestion;

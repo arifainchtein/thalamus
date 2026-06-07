@@ -25,6 +25,16 @@ public class Thalamus {
     private static final String[] ORGANS = {
         "Heart.jar", "Hypothalamus.jar", "Hippocampus.jar", "Medula.jar", "Cerebellum.jar", "tomcat"
     };
+    // Separator lines — change W to resize the whole display
+    private static final int    W     = 100;
+    private static final String SEP_D;   // ══════...
+    private static final String SEP_S;   // ──────...
+    static {
+        StringBuilder d = new StringBuilder(W), s = new StringBuilder(W);
+        for (int i = 0; i < W; i++) { d.append('═'); s.append('─'); }
+        SEP_D = d.toString(); SEP_S = s.toString();
+    }
+
     private static final String DENOME_PATH       = "/home/pi/Teleonome/Teleonome.denome";
     private static final String JSON_OUTPUT_PATH  = "/home/pi/Teleonome/memory_status.json";
     private static final int    LOG_PORT          = 4712;
@@ -499,57 +509,100 @@ public class Thalamus {
 
     // ----- Command list overlay -----
     private void renderCommandList(StringBuilder sb) {
-        sb.append("════════════════════════════════════════════════════\n");
+        sb.append(SEP_D).append('\n');
         sb.append(" THALAMUS — COMMAND REFERENCE\n");
-        sb.append("════════════════════════════════════════════════════\n");
-        sb.append(String.format(" %-26s  %s\n", "COMMAND", "DESCRIPTION"));
-        sb.append("────────────────────────────────────────────────────\n");
+        sb.append(SEP_D).append('\n');
+        sb.append(String.format(" %-36s  %s\n", "COMMAND", "DESCRIPTION"));
+        sb.append(SEP_S).append('\n');
         for (String[] cmd : COMMANDS) {
-            sb.append(String.format(" \033[36m%-26s\033[0m  %s\n", cmd[0], cmd[1]));
+            sb.append(String.format(" \033[36m%-36s\033[0m  %s\n", cmd[0], cmd[1]));
         }
-        sb.append("════════════════════════════════════════════════════\n");
+        sb.append(SEP_D).append('\n');
         sb.append(" Press Enter to return to the dashboard\n");
     }
 
-    // ----- Panel 1: Memory -----
+    // ----- Panel 1: Memory (left) + Active Sources (right) -----
+    //
+    // Layout at W=100:
+    //   left  55 chars │  right 41 chars
+    //   " %-16s %-7s [22 blocks] %3d%%  │  source name"
+    private static final int LEFT_COL  = 55;
+    private static final int BAR_W     = 22;  // block chars inside [...]
+    private static final int RIGHT_COL = W - LEFT_COL - 4; // 4 = " │  "
+
     private void renderMemory(StringBuilder sb, Map<String, Integer> stats) {
-        sb.append("════════════════════════════════════════════════════\n");
+        sb.append(SEP_D).append('\n');
         sb.append(String.format(" THALAMUS [%s]   %s\n", buildNumber, new SimpleDateFormat("HH:mm:ss").format(new Date())));
-        sb.append("════════════════════════════════════════════════════\n");
+        sb.append(SEP_D).append('\n');
 
         File f = new File(DENOME_PATH);
         if (f.exists()) {
             long age = (System.currentTimeMillis() - f.lastModified()) / 1000;
             String c = age < 60 ? "\033[32m" : "\033[31m";
-            sb.append(String.format(" Denome: %s%ds old\033[0m\n", c, age));
+            sb.append(String.format(" Denome: %s%ds old\033[0m", c, age));
         } else {
-            sb.append(" Denome: \033[31mFILE MISSING\033[0m\n");
+            sb.append(" Denome: \033[31mFILE MISSING\033[0m");
         }
-        sb.append(String.format(" %-16s %-7s  %s\n", "ORGAN", "RSS", "HEALTH"));
-        sb.append("────────────────────────────────────────────────────\n");
+        List<String> sources = getActiveSources();
+        sb.append(String.format("%"+(LEFT_COL-24)+"s │  \033[32mACTIVE SOURCES\033[0m (%d)\n", "", sources.size()));
 
-        for (String jar : ORGANS) {
-            String name = jar.replace(".jar", "");
-            int used = stats.getOrDefault(jar, 0);
-            int limit = name.equals("Hippocampus") ? 384 : 128;
-            if (used == 0) {
-                sb.append(String.format(" %-16s %-7s \033[31m[OFFLINE]\033[0m\n", name, "---"));
+        sb.append(String.format(" %-16s %-7s %-"+(BAR_W+2)+"s %4s │  %s\n",
+            "ORGAN", "RSS", "HEALTH", "%", "DEVICE / SOURCE"));
+        sb.append(SEP_S).append('\n');
+
+        int rows = Math.max(ORGANS.length, sources.size());
+        for (int row = 0; row < rows; row++) {
+            // --- left: organ row ---
+            if (row < ORGANS.length) {
+                String jar  = ORGANS[row];
+                String name = jar.replace(".jar", "");
+                int used    = stats.getOrDefault(jar, 0);
+                int limit   = name.equals("Hippocampus") ? 384 : 128;
+                if (used == 0) {
+                    // "[OFFLINE]" is 9 visible chars; pad to LEFT_COL
+                    sb.append(String.format(" %-16s %-7s \033[31m[OFFLINE]\033[0m%-"+(LEFT_COL-36)+"s",
+                        name, "---", ""));
+                } else {
+                    double pct = (double) used / limit;
+                    String c = pct > 0.9 ? "\033[31m" : pct > 0.7 ? "\033[33m" : "\033[32m";
+                    StringBuilder bar = new StringBuilder("[");
+                    int filled = (int) (BAR_W * Math.min(pct, 1.0));
+                    for (int i = 0; i < BAR_W; i++) bar.append(i < filled ? "█" : "░");
+                    bar.append("]");
+                    sb.append(String.format(" %-16s %-7s %s%s\033[0m %3d%%",
+                        name, used + "MB", c, bar, (int)(pct * 100)));
+                }
             } else {
-                double pct = (double) used / limit;
-                String c = pct > 0.9 ? "\033[31m" : pct > 0.7 ? "\033[33m" : "\033[32m";
-                StringBuilder bar = new StringBuilder("[");
-                int filled = (int) (18 * Math.min(pct, 1.0));
-                for (int i = 0; i < 18; i++) bar.append(i < filled ? "█" : "░");
-                bar.append("]");
-                sb.append(String.format(" %-16s %-7s %s%s\033[0m %d%%\n",
-                    name, used + "MB", c, bar, (int)(pct * 100)));
+                sb.append(String.format("%-"+LEFT_COL+"s", ""));
+            }
+
+            // --- separator + right: source row ---
+            String src = row < sources.size() ? sources.get(row) : "";
+            sb.append(String.format(" │  %-"+RIGHT_COL+"s\n", trunc(src, RIGHT_COL)));
+        }
+    }
+
+    /** Most recently active unique sources from logs + MQTT topic roots. */
+    private List<String> getActiveSources() {
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        synchronized (recentLogs) {
+            java.util.Iterator<LogEntry> it = recentLogs.descendingIterator();
+            while (it.hasNext() && seen.size() < 30) seen.add(it.next().source);
+        }
+        synchronized (recentMqtt) {
+            java.util.Iterator<MqttEntry> it = recentMqtt.descendingIterator();
+            while (it.hasNext() && seen.size() < 50) {
+                String topic = it.next().topic;
+                String root  = topic.contains("/") ? topic.substring(0, topic.indexOf('/')) : topic;
+                if (!root.isEmpty()) seen.add(root);
             }
         }
+        return new ArrayList<>(seen);
     }
 
     // ----- Panel 2: MQTT -----
     private void renderMqtt(StringBuilder sb) {
-        sb.append("════════════════════════════════════════════════════\n");
+        sb.append(SEP_D).append('\n');
         if (hideMqtt) {
             sb.append(" MQTT [\033[31mHIDDEN\033[0m]  type: mqtt show\n");
             for (int i = 0; i < MQTT_ROWS + 2; i++) sb.append("\n");
@@ -560,16 +613,17 @@ public class Thalamus {
             ? "\033[33mfilter: " + mqttFilter + "\033[0m"
             : "\033[32mall\033[0m";
         sb.append(String.format(" MQTT [%s]  %d msgs\n", fl, visible.size()));
-        sb.append(String.format(" %-10s %-28s %s\n", "TIME", "TOPIC", "PAYLOAD"));
-        sb.append("────────────────────────────────────────────────────\n");
+        // TIME(10) + TOPIC(45) + PAYLOAD(rest ~41) = ~99
+        sb.append(String.format(" %-10s %-45s %s\n", "TIME", "TOPIC", "PAYLOAD"));
+        sb.append(SEP_S).append('\n');
 
         int start = Math.max(0, visible.size() - MQTT_ROWS);
         int shown = 0;
         for (int i = start; i < visible.size(); i++) {
             MqttEntry e = visible.get(i);
-            String topic   = trunc(e.topic,   27);
-            String payload = trunc(e.payload, 16);
-            sb.append(String.format(" %-10s \033[36m%-28s\033[0m %s\n",
+            String topic   = trunc(e.topic,   44);
+            String payload = trunc(e.payload, 40);
+            sb.append(String.format(" %-10s \033[36m%-45s\033[0m %s\n",
                 e.ts, topic, payload));
             shown++;
         }
@@ -590,7 +644,7 @@ public class Thalamus {
 
     // ----- Panel 3: Log4J -----
     private void renderLogs(StringBuilder sb) {
-        sb.append("════════════════════════════════════════════════════\n");
+        sb.append(SEP_D).append('\n');
         if (hideLog) {
             sb.append(" LOGS [\033[31mHIDDEN\033[0m]  type: show all\n");
             for (int i = 0; i < LOG_ROWS + 2; i++) sb.append("\n");
@@ -601,17 +655,18 @@ public class Thalamus {
             ? "\033[33mfilter: " + logFilter + "\033[0m"
             : "\033[32mall\033[0m";
         sb.append(String.format(" LOGS [%s]\n", fl));
-        sb.append(String.format(" %-10s %-7s %-22s %s\n", "TIME", "LEVEL", "SOURCE", "MESSAGE"));
-        sb.append("────────────────────────────────────────────────────\n");
+        // TIME(10) + LEVEL(7) + SOURCE(30) + MESSAGE(rest ~48) ≈ 99
+        sb.append(String.format(" %-10s %-7s %-30s %s\n", "TIME", "LEVEL", "SOURCE", "MESSAGE"));
+        sb.append(SEP_S).append('\n');
 
         int start = Math.max(0, visible.size() - LOG_ROWS);
         int shown = 0;
         for (int i = start; i < visible.size(); i++) {
             LogEntry e = visible.get(i);
             String c   = levelColor(e.level);
-            String msg = trunc(e.message, 20);
-            sb.append(String.format(" %-10s %s%-7s\033[0m %-22s %s\n",
-                e.ts, c, e.level, trunc(e.source, 22), msg));
+            String msg = trunc(e.message, 48);
+            sb.append(String.format(" %-10s %s%-7s\033[0m %-30s %s\n",
+                e.ts, c, e.level, trunc(e.source, 30), msg));
             shown++;
         }
         for (int i = shown; i < LOG_ROWS; i++) sb.append("\n");
@@ -633,10 +688,10 @@ public class Thalamus {
 
     // ----- Prompt with autocomplete -----
     private void renderPrompt(StringBuilder sb) {
-        sb.append("════════════════════════════════════════════════════\n");
-        sb.append(" show <name>  show all  hide all  │  mqtt filter <name>  mqtt hide/show\n");
-        sb.append(" kill heart/hypothalamus/hippocampus/medula/tomcat  │  killhe hy hi md tc ce\n");
-        sb.append("────────────────────────────────────────────────────\n");
+        sb.append(SEP_D).append('\n');
+        sb.append(" show <name>  show all  hide all  │  mqtt filter <name>  mqtt clear  mqtt hide  mqtt show  │  listcommands\n");
+        sb.append(" kill heart/hypothalamus/hippocampus/medula/cerebellum/tomcat  │  killhe  killhy  killhi  killmd  killce  killtc\n");
+        sb.append(SEP_S).append('\n');
 
         String input = currentInput;
         String sug   = suggestion;

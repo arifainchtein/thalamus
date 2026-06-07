@@ -678,15 +678,21 @@ public class Thalamus {
         sb.append(String.format(" THALAMUS [%s]   %s\n", buildNumber, new SimpleDateFormat("HH:mm:ss").format(new Date())));
         sb.append(SEP_D).append('\n');
 
+        // Build Denome text, compute its exact visible length to align the │ separator correctly
         File f = new File(DENOME_PATH);
+        String denomeAnsi, denomeVis;
         if (f.exists()) {
             long age = (System.currentTimeMillis() - f.lastModified()) / 1000;
             String c = age < 60 ? "\033[32m" : "\033[31m";
-            sb.append(String.format(" Denome: %s%ds old\033[0m", c, age));
+            denomeAnsi = String.format(" Denome: %s%ds old\033[0m", c, age);
+            denomeVis  = String.format(" Denome: %ds old", age);
         } else {
-            sb.append(" Denome: \033[31mFILE MISSING\033[0m");
+            denomeAnsi = " Denome: \033[31mFILE MISSING\033[0m";
+            denomeVis  = " Denome: FILE MISSING";
         }
-        sb.append(String.format("%"+(LEFT_COL-24)+"s │  \033[36mHIPPOCAMPUS STATUS\033[0m\n", ""));
+        int pad = Math.max(0, LEFT_COL - denomeVis.length());
+        sb.append(denomeAnsi);
+        sb.append(String.format("%-"+pad+"s │  \033[36mHIPPOCAMPUS STATUS\033[0m\n", ""));
 
         // header: ORGAN RSS HEALTH % AGO │ (status sub-columns)
         sb.append(String.format(" %-16s %-7s %-"+(BAR_W+2)+"s %3s %-"+LAST_W+"s │\n",
@@ -755,9 +761,14 @@ public class Thalamus {
         return m;
     }
 
-    /** Parses a flat JSON file into an ordered list of [key, value] pairs, skipping timestamp/pid fields. */
+    /**
+     * Parses a flat JSON file into display-ready [label, value] pairs.
+     * "name"/"value"/"required" triplets are merged: the "name" field becomes the label,
+     * the "value" field becomes the value, and "required" is skipped entirely.
+     * Timestamp and pid fields are also skipped.
+     */
     private List<String[]> readStatusJson(String path) {
-        List<String[]> pairs = new ArrayList<>();
+        List<String[]> raw = new ArrayList<>();
         try (BufferedReader r = new BufferedReader(new FileReader(path))) {
             String line;
             while ((line = r.readLine()) != null) {
@@ -767,19 +778,45 @@ public class Thalamus {
                 if (sep < 0) continue;
                 String key = line.substring(1, sep);
                 String kl  = key.toLowerCase();
-                if (kl.contains("timestamp") || kl.endsWith("pid")) continue;
+                if (kl.contains("timestamp") || kl.endsWith("pid") || kl.equals("required")) continue;
                 String val = line.substring(sep + 2).trim();
                 if (val.endsWith(",")) val = val.substring(0, val.length() - 1).trim();
                 val = val.replace("\"", "");
-                if (!val.isEmpty()) pairs.add(new String[]{key, val});
+                if (!val.isEmpty()) raw.add(new String[]{key, val});
             }
         } catch (Exception ignored) {}
-        return pairs;
+
+        // Merge consecutive "name"/"value" pairs into one display entry
+        List<String[]> result = new ArrayList<>();
+        String pendingName = null;
+        for (String[] kv : raw) {
+            if (kv[0].equalsIgnoreCase("name")) {
+                pendingName = kv[1];
+            } else if (kv[0].equalsIgnoreCase("value") && pendingName != null) {
+                result.add(new String[]{titleCase(pendingName), kv[1]});
+                pendingName = null;
+            } else {
+                if (pendingName != null) { result.add(new String[]{"name", pendingName}); pendingName = null; }
+                result.add(kv);
+            }
+        }
+        if (pendingName != null) result.add(new String[]{"name", pendingName});
+        return result;
     }
 
-    /** Formats a [key, value] pair into a fixed-width string for the status panel sub-column. */
+    private String titleCase(String s) {
+        StringBuilder out = new StringBuilder();
+        boolean cap = true;
+        for (char ch : s.toCharArray()) {
+            out.append(cap ? Character.toUpperCase(ch) : Character.toLowerCase(ch));
+            cap = (ch == ' ');
+        }
+        return out.toString();
+    }
+
+    /** Formats a [label, value] pair into a fixed-width string for the status panel sub-column. */
     private String fmtKV(String[] kv) {
-        int keyW = HIPPO_VAR_W * 2 / 5;
+        int keyW = (HIPPO_VAR_W - 2) / 2;  // equal split between label and value
         int valW = HIPPO_VAR_W - keyW - 2;
         return String.format("%-"+keyW+"s: %-"+valW+"s", trunc(kv[0], keyW), trunc(kv[1], valW));
     }

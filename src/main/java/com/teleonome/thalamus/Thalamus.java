@@ -127,6 +127,7 @@ public class Thalamus {
     // Render trigger — set by input thread; cleared by render thread
     private volatile boolean renderNeeded    = false;
     private volatile boolean showCommandList = false;
+    private volatile String  lastError       = "";
 
     // Cached stats so prompt keystrokes can trigger a fast re-render
     private volatile Map<String, Integer>        lastStats       = new HashMap<>();
@@ -338,6 +339,10 @@ public class Thalamus {
         else if (lo.equals("restartmd"))            { restartProcess("Medula.jar",        "StartMedulaBG.sh"); }
         else if (lo.equals("restarttc"))            { restartProcess("tomcat",            "StartTomcatBG.sh"); }
         else if (lo.equals("restarce"))             { restartProcess("Cerebellum.jar",    "StartCerebellumBG.sh"); }
+
+        else { lastError = "Invalid command: " + cmd; renderNeeded = true; return; }
+
+        lastError = "";
     }
 
     private void killProcess(String name) {
@@ -1006,6 +1011,9 @@ public class Thalamus {
         sb.append(" kill heart/hypothalamus/hippocampus/medula/cerebellum/tomcat  │  killhe  killhy  killhi  killmd  killce  killtc\n");
         sb.append(" restarthe  restarthy  restarthi  restartmd  restarce  restarttc\n");
         sb.append(SEP_S).append('\n');
+
+        String err = lastError;
+        if (!err.isEmpty()) sb.append(" \033[31m").append(err).append("\033[0m\n");
 
         String input = currentInput;
         String sug   = suggestion;

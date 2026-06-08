@@ -774,41 +774,57 @@ public class Thalamus {
     }
 
     /**
-     * Parses a flat JSON file into display-ready [label, value] pairs.
-     * "name"/"value"/"required" triplets are merged: the "name" field becomes the label,
-     * the "value" field becomes the value, and "required" is skipped entirely.
-     * Timestamp and pid fields are also skipped.
+     * Parses a status JSON file into display-ready [label, value] pairs.
+     * Handles two layouts:
+     *   Flat:   "name":"points used", "value":21712  → merged as "Points Used: 21712"
+     *   Nested: "Points Used":{"value":21712, ...}   → extracted as "Points Used: 21712"
+     * Skips: timestamp, pid, required, valueType fields.
      */
     private List<String[]> readStatusJson(String path) {
-        List<String[]> raw = new ArrayList<>();
+        List<String[]> result = new ArrayList<>();
         try (BufferedReader r = new BufferedReader(new FileReader(path))) {
+            String flatName = null, flatValue = null;
+            String objKey = null, objValue = null;
             String line;
             while ((line = r.readLine()) != null) {
                 line = line.trim();
+                // Close of a nested object → emit the metric
+                if ((line.equals("}") || line.equals("},")) && objKey != null) {
+                    if (objValue != null) result.add(new String[]{objKey, objValue});
+                    objKey = null; objValue = null;
+                    continue;
+                }
                 if (!line.startsWith("\"")) continue;
                 int sep = line.indexOf("\":");
                 if (sep < 0) continue;
                 String key = line.substring(1, sep);
-                String kl  = key.toLowerCase();
-                if (kl.contains("timestamp") || kl.endsWith("pid") || kl.equals("required")) continue;
+                String kl  = key.toLowerCase().replace(" ", "");
+                // Skip fields we don't want to display
+                if (kl.contains("timestamp") || kl.endsWith("pid") ||
+                    kl.equals("required")     || kl.equals("valuetype")) continue;
                 String val = line.substring(sep + 2).trim();
                 if (val.endsWith(",")) val = val.substring(0, val.length() - 1).trim();
+                // Nested object start: "MetricName": {
+                if (val.equals("{")) {
+                    if (!kl.equals("name") && !kl.equals("value")) { objKey = key; objValue = null; }
+                    continue;
+                }
                 val = val.replace("\"", "");
-                if (!val.isEmpty()) raw.add(new String[]{key, val});
+                if (val.isEmpty()) continue;
+                if (objKey != null) {
+                    // Inside nested object — only care about "value"
+                    if (kl.equals("value")) objValue = val;
+                } else {
+                    // Top-level flat field
+                    if (kl.equals("name"))       flatName  = val;
+                    else if (kl.equals("value")) flatValue = val;
+                    else                         result.add(new String[]{key, val});
+                }
             }
+            // Flat structure: merge "name" + "value" into one entry at the front
+            if (flatName != null && flatValue != null)
+                result.add(0, new String[]{titleCase(flatName), flatValue});
         } catch (Exception ignored) {}
-
-        // Two-pass merge: find "name" and "value" keys regardless of their order in the file
-        String nameVal = null, valueVal = null;
-        List<String[]> otherPairs = new ArrayList<>();
-        for (String[] kv : raw) {
-            if (kv[0].equalsIgnoreCase("name"))       nameVal  = kv[1];
-            else if (kv[0].equalsIgnoreCase("value"))  valueVal = kv[1];
-            else                                       otherPairs.add(kv);
-        }
-        List<String[]> result = new ArrayList<>();
-        if (nameVal != null && valueVal != null) result.add(new String[]{titleCase(nameVal), valueVal});
-        result.addAll(otherPairs);
         return result;
     }
 

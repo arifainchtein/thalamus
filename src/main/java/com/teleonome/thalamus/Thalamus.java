@@ -697,8 +697,12 @@ public class Thalamus {
         List<String[]> hippoDisplay = new ArrayList<>();
         for (String[] kv : hippoData) {
             if (kv[0].toLowerCase().contains("last") && kv[0].toLowerCase().contains("message")) {
-                try { hippoLastMsg = new SimpleDateFormat("HH:mm:ss dd/MM").format(new Date(Long.parseLong(kv[1].trim()))); }
-                catch (Exception ignored) { hippoLastMsg = kv[1]; }
+                try {
+                    long ts = Long.parseLong(kv[1].trim());
+                    // Only format if this looks like a real epoch timestamp (after 2020)
+                    if (ts > 1577836800000L) hippoLastMsg = new SimpleDateFormat("HH:mm:ss dd/MM").format(new Date(ts));
+                    else hippoLastMsg = kv[1]; // show raw value if not a plausible timestamp
+                } catch (Exception ignored) { hippoLastMsg = kv[1]; }
             } else {
                 hippoDisplay.add(kv);
             }
@@ -775,53 +779,74 @@ public class Thalamus {
 
     /**
      * Parses a status JSON file into display-ready [label, value] pairs.
-     * Handles two layouts:
-     *   Flat:   "name":"points used", "value":21712  → merged as "Points Used: 21712"
-     *   Nested: "Points Used":{"value":21712, ...}   → extracted as "Points Used: 21712"
+     * Handles three layouts that appear in Organ status files:
+     *   Array:  "DeneWords":[{"name":"X","value":N,...}, ...]  → one entry per item
+     *   Nested: "MetricName":{"value":N,...}                   → one entry per object
+     *   Flat:   "name":"X","value":N                           → merged into one entry
      * Skips: timestamp, pid, required, valueType fields.
      */
     private List<String[]> readStatusJson(String path) {
         List<String[]> result = new ArrayList<>();
         try (BufferedReader r = new BufferedReader(new FileReader(path))) {
-            String flatName = null, flatValue = null;
-            String objKey = null, objValue = null;
             String line;
+            boolean inArray = false;   // inside a JSON array value
+            boolean inItem  = false;   // inside an array item object
+            String itemName = null, itemValue = null;   // current array item
+            String objKey   = null, objValue   = null;  // current nested object
+            String flatName = null, flatValue  = null;  // top-level flat name/value
+
             while ((line = r.readLine()) != null) {
                 line = line.trim();
-                // Close of a nested object → emit the metric
+
+                // --- structural tokens ---
+                if ((line.equals("{") || line.startsWith("{ ")) && inArray) {
+                    itemName = null; itemValue = null; inItem = true; continue;
+                }
+                if ((line.equals("}") || line.equals("},")) && inItem) {
+                    if (itemName != null && itemValue != null)
+                        result.add(new String[]{titleCase(itemName), itemValue});
+                    itemName = null; itemValue = null; inItem = false; continue;
+                }
+                if ((line.equals("]") || line.equals("],")) && inArray) {
+                    inArray = false; continue;
+                }
                 if ((line.equals("}") || line.equals("},")) && objKey != null) {
                     if (objValue != null) result.add(new String[]{objKey, objValue});
-                    objKey = null; objValue = null;
-                    continue;
+                    objKey = null; objValue = null; continue;
                 }
+
                 if (!line.startsWith("\"")) continue;
                 int sep = line.indexOf("\":");
                 if (sep < 0) continue;
                 String key = line.substring(1, sep);
                 String kl  = key.toLowerCase().replace(" ", "");
-                // Skip fields we don't want to display
+
                 if (kl.contains("timestamp") || kl.endsWith("pid") ||
                     kl.equals("required")     || kl.equals("valuetype")) continue;
+
                 String val = line.substring(sep + 2).trim();
                 if (val.endsWith(",")) val = val.substring(0, val.length() - 1).trim();
-                // Nested object start: "MetricName": {
-                if (val.equals("{")) {
-                    if (!kl.equals("name") && !kl.equals("value")) { objKey = key; objValue = null; }
-                    continue;
-                }
+
+                if (val.equals("[")) { inArray = true;  continue; }   // array start
+                if (val.equals("{")) { objKey = key; objValue = null; continue; } // object start
+
                 val = val.replace("\"", "");
                 if (val.isEmpty()) continue;
-                if (objKey != null) {
-                    // Inside nested object — only care about "value"
+
+                if (inItem) {
+                    // Inside array item: collect name and value
+                    if (kl.equals("name"))       itemName  = val;
+                    else if (kl.equals("value")) itemValue = val;
+                } else if (objKey != null) {
+                    // Inside nested object: only the "value" field matters
                     if (kl.equals("value")) objValue = val;
                 } else {
-                    // Top-level flat field
+                    // Top-level field
                     if (kl.equals("name"))       flatName  = val;
                     else if (kl.equals("value")) flatValue = val;
                     else                         result.add(new String[]{key, val});
                 }
             }
-            // Flat structure: merge "name" + "value" into one entry at the front
             if (flatName != null && flatValue != null)
                 result.add(0, new String[]{titleCase(flatName), flatValue});
         } catch (Exception ignored) {}

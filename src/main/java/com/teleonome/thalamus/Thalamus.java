@@ -865,7 +865,7 @@ public class Thalamus {
 
     /** Formats a [label, value] pair into a fixed-width string for the status panel sub-column. */
     private String fmtKV(String[] kv) {
-        int keyW = (HIPPO_VAR_W - 2) / 2;  // equal split between label and value
+        int keyW = Math.min((HIPPO_VAR_W - 2) / 2 + 5, HIPPO_VAR_W - 6); // +5 chars for label, keep at least 4 for value
         int valW = HIPPO_VAR_W - keyW - 2;
         return String.format("%-"+keyW+"s: %-"+valW+"s", trunc(kv[0], keyW), trunc(kv[1], valW));
     }

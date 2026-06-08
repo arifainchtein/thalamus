@@ -353,7 +353,12 @@ public class Thalamus {
             try {
                 killProcess(name);
                 Thread.sleep(2000);
-                Runtime.getRuntime().exec(new String[]{"bash", "/home/pi/Teleonome/" + script});
+                java.io.File dir = new java.io.File("/home/pi/Teleonome/");
+                Process p = Runtime.getRuntime().exec(
+                    new String[]{"/bin/bash", "/home/pi/Teleonome/" + script}, null, dir);
+                // drain output so process doesn't block
+                new Thread(() -> { try { byte[] b = new byte[256]; while (p.getInputStream().read(b) != -1) {} } catch (Exception ignored) {} }).start();
+                new Thread(() -> { try { byte[] b = new byte[256]; while (p.getErrorStream().read(b) != -1) {} } catch (Exception ignored) {} }).start();
             } catch (Exception ignored) {}
         });
         t.setDaemon(true);

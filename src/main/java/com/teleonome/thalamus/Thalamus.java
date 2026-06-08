@@ -157,6 +157,12 @@ public class Thalamus {
         { "killmd",               "Kill Medula.jar"                          },
         { "killtc",               "Kill Tomcat"                              },
         { "killce",               "Kill Cerebellum.jar"                      },
+        { "restarthe",            "Restart Heart.jar"                        },
+        { "restarthy",            "Restart Hypothalamus.jar"                 },
+        { "restarthi",            "Restart Hippocampus.jar"                  },
+        { "restartmd",            "Restart Medula.jar"                       },
+        { "restarttc",            "Restart Tomcat"                           },
+        { "restarce",             "Restart Cerebellum.jar"                   },
     };
 
     // =========================================================
@@ -322,6 +328,14 @@ public class Thalamus {
         else if (lo.equals("killmd"))               { killProcess("Medula.jar"); }
         else if (lo.equals("killtc"))               { killProcess("tomcat"); }
         else if (lo.equals("killce"))               { killProcess("Cerebellum.jar"); }
+
+        // --- Restart commands (short codes) ---
+        else if (lo.equals("restarthe"))            { restartProcess("Heart.jar",        "StartHeartBG.sh"); }
+        else if (lo.equals("restarthy"))            { restartProcess("Hypothalamus.jar", "StartHypothalamusBG.sh"); }
+        else if (lo.equals("restarthi"))            { restartProcess("Hippocampus.jar",  "StartHippocampusBG.sh"); }
+        else if (lo.equals("restartmd"))            { restartProcess("Medula.jar",        "StartMedulaBG.sh"); }
+        else if (lo.equals("restarttc"))            { restartProcess("tomcat",            "StartTomcatBG.sh"); }
+        else if (lo.equals("restarce"))             { restartProcess("Cerebellum.jar",    "StartCerebellumBG.sh"); }
     }
 
     private void killProcess(String name) {
@@ -332,6 +346,18 @@ public class Thalamus {
                 Runtime.getRuntime().exec(new String[]{"pkill", "-f", name});
             }
         } catch (Exception ignored) {}
+    }
+
+    private void restartProcess(String name, String script) {
+        Thread t = new Thread(() -> {
+            try {
+                killProcess(name);
+                Thread.sleep(2000);
+                Runtime.getRuntime().exec(new String[]{"bash", "/home/pi/Teleonome/" + script});
+            } catch (Exception ignored) {}
+        });
+        t.setDaemon(true);
+        t.start();
     }
 
     // =========================================================
@@ -959,6 +985,7 @@ public class Thalamus {
         sb.append(SEP_D).append('\n');
         sb.append(" show <name>  show all  hide all  │  mqtt filter <name>  mqtt clear  mqtt hide  mqtt show  │  listcommands\n");
         sb.append(" kill heart/hypothalamus/hippocampus/medula/cerebellum/tomcat  │  killhe  killhy  killhi  killmd  killce  killtc\n");
+        sb.append(" restarthe  restarthy  restarthi  restartmd  restarce  restarttc\n");
         sb.append(SEP_S).append('\n');
 
         String input = currentInput;

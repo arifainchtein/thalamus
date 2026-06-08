@@ -138,6 +138,7 @@ public class Thalamus {
     // =========================================================
     private static final String[][] COMMANDS = {
         { "listcommands",         "Show this command reference"              },
+        { "clear",                "Clear the terminal scrollback buffer"     },
         { "show all",             "Remove log filter, show all entries"      },
         { "show ",                "Filter logs to logger names containing X" },
         { "hide all",             "Collapse the log section"                 },
@@ -301,6 +302,7 @@ public class Thalamus {
 
         // --- Help ---
         if      (lo.equals("listcommands"))         { showCommandList = true; return; }
+        else if (lo.equals("clear"))                { System.out.print("\033[3J"); System.out.flush(); renderNeeded = true; return; }
 
         // --- Log section ---
         else if (lo.equals("show all"))             { hideLog = false; logFilter = null; }
@@ -348,14 +350,26 @@ public class Thalamus {
         } catch (Exception ignored) {}
     }
 
+    private void killProcessHard(String name) {
+        try {
+            if (name.equals("tomcat")) {
+                Runtime.getRuntime().exec(new String[]{"pkill", "-9", "-f", "catalina.startup.Bootstrap"});
+            } else {
+                Runtime.getRuntime().exec(new String[]{"pkill", "-9", "-f", name});
+            }
+        } catch (Exception ignored) {}
+    }
+
     private void restartProcess(String name, String script) {
         Thread t = new Thread(() -> {
             try {
                 killProcess(name);
-                Thread.sleep(2000);
+                Thread.sleep(1500);
+                killProcessHard(name);
+                Thread.sleep(1500);
                 java.io.File dir = new java.io.File("/home/pi/Teleonome/");
                 Process p = Runtime.getRuntime().exec(
-                    new String[]{"/bin/bash", "/home/pi/Teleonome/" + script}, null, dir);
+                    new String[]{"/bin/bash", "-l", "-c", "/home/pi/Teleonome/" + script}, null, dir);
                 // drain output so process doesn't block
                 new Thread(() -> { try { byte[] b = new byte[256]; while (p.getInputStream().read(b) != -1) {} } catch (Exception ignored) {} }).start();
                 new Thread(() -> { try { byte[] b = new byte[256]; while (p.getErrorStream().read(b) != -1) {} } catch (Exception ignored) {} }).start();
@@ -988,7 +1002,7 @@ public class Thalamus {
     // ----- Prompt with autocomplete -----
     private void renderPrompt(StringBuilder sb) {
         sb.append(SEP_D).append('\n');
-        sb.append(" show <name>  show all  hide all  │  mqtt filter <name>  mqtt clear  mqtt hide  mqtt show  │  listcommands\n");
+        sb.append(" show <name>  show all  hide all  │  mqtt filter <name>  mqtt clear  mqtt hide  mqtt show  │  listcommands  clear\n");
         sb.append(" kill heart/hypothalamus/hippocampus/medula/cerebellum/tomcat  │  killhe  killhy  killhi  killmd  killce  killtc\n");
         sb.append(" restarthe  restarthy  restarthi  restartmd  restarce  restarttc\n");
         sb.append(SEP_S).append('\n');

@@ -183,23 +183,37 @@ public class Thalamus {
     // Main relay loop
     // =========================================================
     public void startRelay() {
+        // Initial data load so first render has something to show
+        lastStats       = getMemoryUsage();
+        lastUpdateCache = getLastUpdates();
+        organStatus     = getOrganStatuses();
+        writeJson(lastStats);
+
+        // Background thread refreshes data every 5 s — never blocks the render loop
+        Thread dataThread = new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(5000);
+                    lastStats       = getMemoryUsage();
+                    lastUpdateCache = getLastUpdates();
+                    organStatus     = getOrganStatuses();
+                    writeJson(lastStats);
+                    renderNeeded    = true;
+                } catch (Exception ignored) {}
+            }
+        });
+        dataThread.setDaemon(true);
+        dataThread.start();
+
+        // Fast render loop — checks every 80 ms, never blocked by I/O
+        renderNeeded = true;
         while (true) {
             try {
-                lastStats       = getMemoryUsage();
-                lastUpdateCache = getLastUpdates();
-                organStatus     = getOrganStatuses();
-                renderDashboard(lastStats);
-                writeJson(lastStats);
-                renderNeeded = false;
-
-                long deadline = System.currentTimeMillis() + 5000;
-                while (System.currentTimeMillis() < deadline) {
-                    if (renderNeeded) {
-                        renderDashboard(lastStats);
-                        renderNeeded = false;
-                    }
-                    Thread.sleep(80);
+                if (renderNeeded) {
+                    renderDashboard(lastStats);
+                    renderNeeded = false;
                 }
+                Thread.sleep(80);
             } catch (Exception ignored) {}
         }
     }

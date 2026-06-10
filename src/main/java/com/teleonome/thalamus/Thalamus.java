@@ -77,6 +77,26 @@ public class Thalamus {
         LOG_MSG_W = W - 1 - 10 - 1 - 7 - 1 - LOG_SOURCE_W - 1;
     }
 
+    private static final Map<String, String> MQTT_SOURCE_MAP;
+    static {
+        MQTT_SOURCE_MAP = new HashMap<>();
+        MQTT_SOURCE_MAP.put("PulseStatusInfo",          "PulseThread");
+        MQTT_SOURCE_MAP.put("PulseStatusInfoSecundary", "PulseThread");
+        MQTT_SOURCE_MAP.put("Status",                   "PulseThread");
+        MQTT_SOURCE_MAP.put("Hippocampus_Status",       "Hippocampus");
+        MQTT_SOURCE_MAP.put("Hippocampus_Response",     "Hippocampus");
+        MQTT_SOURCE_MAP.put("Cerebellum_Request",       "Cerebellum");
+        MQTT_SOURCE_MAP.put("Cerebellum_Response",      "Cerebellum");
+        MQTT_SOURCE_MAP.put("Cerebellum_Status",        "Cerebellum");
+        MQTT_SOURCE_MAP.put("UpdateFormRequest",        "WebApp");
+        MQTT_SOURCE_MAP.put("UpdateFormResponse",       "MappedBusThread");
+        MQTT_SOURCE_MAP.put("UpdateFormStatus",         "MappedBusThread");
+        MQTT_SOURCE_MAP.put("AsyncCycleUpdate",         "MappedBusThread");
+        MQTT_SOURCE_MAP.put("TelepathonStatus",         "MappedBusThread");
+        MQTT_SOURCE_MAP.put("OrganismUpdate",           "ZhinuWatchDir");
+        MQTT_SOURCE_MAP.put("OrganismStatus",           "ZhinuWatchDir");
+    }
+
     private static final String DENOME_PATH       = "/home/pi/Teleonome/Teleonome.denome";
     private static final String JSON_OUTPUT_PATH  = "/home/pi/Teleonome/memory_status.json";
     private static final int    LOG_PORT          = 4712;
@@ -955,8 +975,7 @@ public class Thalamus {
         int shown = 0;
         for (int i = start; i < visible.size(); i++) {
             MqttEntry e = visible.get(i);
-            int slash = e.topic.indexOf('/');
-            String src   = trunc(slash >= 0 ? e.topic.substring(0, slash) : e.topic, MQTT_SOURCE_W);
+            String src   = trunc(MQTT_SOURCE_MAP.getOrDefault(e.topic, ""), MQTT_SOURCE_W);
             String topic = trunc(e.topic, MQTT_TOPIC_W);
             String payload = trunc(e.payload, MQTT_PAYLOAD_W);
             sb.append(String.format(" %-10s \033[33m%-"+MQTT_SOURCE_W+"s\033[0m \033[36m%-"+MQTT_TOPIC_W+"s\033[0m %s\n",

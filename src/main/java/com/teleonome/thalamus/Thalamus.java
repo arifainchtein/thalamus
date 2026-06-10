@@ -37,7 +37,7 @@ public class Thalamus {
     private static final int    HIPPO_COL;    // chars allocated to Hippocampus status block
     private static final int    HIPPO_VAR_W;  // chars per sub-column inside Hippocampus block
     // MQTT panel columns
-    private static final int    MQTT_SOURCE_W  = 13;
+    private static final int    MQTT_SOURCE_W  = 16;
     private static final int    MQTT_TOPIC_W;
     private static final int    MQTT_PAYLOAD_W;
     // Log panel columns
@@ -957,7 +957,7 @@ public class Thalamus {
             MqttEntry e = visible.get(i);
             int slash = e.topic.indexOf('/');
             String src   = trunc(slash >= 0 ? e.topic.substring(0, slash) : e.topic, MQTT_SOURCE_W);
-            String topic = trunc(slash >= 0 ? e.topic.substring(slash + 1) : "",     MQTT_TOPIC_W);
+            String topic = trunc(e.topic, MQTT_TOPIC_W);
             String payload = trunc(e.payload, MQTT_PAYLOAD_W);
             sb.append(String.format(" %-10s \033[33m%-"+MQTT_SOURCE_W+"s\033[0m \033[36m%-"+MQTT_TOPIC_W+"s\033[0m %s\n",
                 e.ts, src, topic, payload));

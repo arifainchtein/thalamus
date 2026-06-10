@@ -402,18 +402,24 @@ public class Thalamus {
 
     private void restartProcess(String name, String script) {
         Thread t = new Thread(() -> {
+            java.io.File log = new java.io.File("/tmp/thalamus_restart.log");
             try {
                 killProcess(name);
                 Thread.sleep(1500);
                 killProcessHard(name);
                 Thread.sleep(1500);
                 java.io.File dir = new java.io.File("/home/pi/Teleonome/");
-                Process p = Runtime.getRuntime().exec(
-                    new String[]{"/bin/bash", "-l", "-c", "/home/pi/Teleonome/" + script}, null, dir);
-                // drain output so process doesn't block
-                new Thread(() -> { try { byte[] b = new byte[256]; while (p.getInputStream().read(b) != -1) {} } catch (Exception ignored) {} }).start();
-                new Thread(() -> { try { byte[] b = new byte[256]; while (p.getErrorStream().read(b) != -1) {} } catch (Exception ignored) {} }).start();
-            } catch (Exception ignored) {}
+                String scriptPath = "/home/pi/Teleonome/" + script;
+                ProcessBuilder pb = new ProcessBuilder("/bin/bash", "-l", scriptPath);
+                pb.directory(dir);
+                pb.redirectErrorStream(true);
+                pb.redirectOutput(log);
+                pb.start();
+            } catch (Exception e) {
+                try (java.io.FileWriter fw = new java.io.FileWriter(log, true)) {
+                    fw.write("Exception launching " + script + ": " + e + "\n");
+                } catch (Exception ignored) {}
+            }
         });
         t.setDaemon(true);
         t.start();

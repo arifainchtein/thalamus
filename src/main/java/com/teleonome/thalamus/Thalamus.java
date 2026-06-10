@@ -37,6 +37,7 @@ public class Thalamus {
     private static final int    HIPPO_COL;    // chars allocated to Hippocampus status block
     private static final int    HIPPO_VAR_W;  // chars per sub-column inside Hippocampus block
     // MQTT panel columns
+    private static final int    MQTT_SOURCE_W  = 13;
     private static final int    MQTT_TOPIC_W;
     private static final int    MQTT_PAYLOAD_W;
     // Log panel columns
@@ -70,7 +71,7 @@ public class Thalamus {
 
         // MQTT panel
         MQTT_TOPIC_W   = Math.min(30, W / 5);
-        MQTT_PAYLOAD_W = W - 1 - 10 - 1 - MQTT_TOPIC_W - 1;
+        MQTT_PAYLOAD_W = W - 1 - 10 - 1 - MQTT_SOURCE_W - 1 - MQTT_TOPIC_W - 1;
 
         // Log panel
         LOG_MSG_W = W - 1 - 10 - 1 - 7 - 1 - LOG_SOURCE_W - 1;
@@ -164,7 +165,7 @@ public class Thalamus {
         { "restarthi",            "Restart Hippocampus.jar"                  },
         { "restartmd",            "Restart Medula.jar"                       },
         { "restarttc",            "Restart Tomcat"                           },
-        { "restarce",             "Restart Cerebellum.jar"                   },
+        { "restartce",            "Restart Cerebellum.jar"                   },
     };
 
     // =========================================================
@@ -352,7 +353,7 @@ public class Thalamus {
         else if (lo.equals("restarthi"))            { restartProcess("Hippocampus.jar",  "StartHippocampusBG.sh"); }
         else if (lo.equals("restartmd"))            { restartProcess("Medula.jar",        "StartMedulaBG.sh"); }
         else if (lo.equals("restarttc"))            { restartProcess("tomcat",            "StartTomcatBG.sh"); }
-        else if (lo.equals("restarce"))             { restartProcess("Cerebellum.jar",    "StartCerebellumBG.sh"); }
+        else if (lo.equals("restartce"))            { restartProcess("Cerebellum.jar",    "StartCerebellumBG.sh"); }
 
         else { lastError = "Invalid command: " + cmd; renderNeeded = true; return; }
 
@@ -947,17 +948,19 @@ public class Thalamus {
             ? "\033[33mfilter: " + mqttFilter + "\033[0m"
             : "\033[32mall\033[0m";
         sb.append(String.format(" MQTT [%s]  %d msgs\n", fl, visible.size()));
-        sb.append(String.format(" %-10s %-"+MQTT_TOPIC_W+"s %s\n", "TIME", "TOPIC", "PAYLOAD"));
+        sb.append(String.format(" %-10s %-"+MQTT_SOURCE_W+"s %-"+MQTT_TOPIC_W+"s %s\n", "TIME", "SOURCE", "TOPIC", "PAYLOAD"));
         sb.append(SEP_S).append('\n');
 
         int start = Math.max(0, visible.size() - MQTT_ROWS);
         int shown = 0;
         for (int i = start; i < visible.size(); i++) {
             MqttEntry e = visible.get(i);
-            String topic   = trunc(e.topic,   MQTT_TOPIC_W);
+            int slash = e.topic.indexOf('/');
+            String src   = trunc(slash >= 0 ? e.topic.substring(0, slash) : e.topic, MQTT_SOURCE_W);
+            String topic = trunc(slash >= 0 ? e.topic.substring(slash + 1) : "",     MQTT_TOPIC_W);
             String payload = trunc(e.payload, MQTT_PAYLOAD_W);
-            sb.append(String.format(" %-10s \033[36m%-"+MQTT_TOPIC_W+"s\033[0m %s\n",
-                e.ts, topic, payload));
+            sb.append(String.format(" %-10s \033[33m%-"+MQTT_SOURCE_W+"s\033[0m \033[36m%-"+MQTT_TOPIC_W+"s\033[0m %s\n",
+                e.ts, src, topic, payload));
             shown++;
         }
         for (int i = shown; i < MQTT_ROWS; i++) sb.append("\n");
@@ -1023,7 +1026,7 @@ public class Thalamus {
         sb.append(SEP_D).append('\n');
         sb.append(" show <name>  show all  hide all  │  mqtt filter <name>  mqtt clear  mqtt hide  mqtt show  │  listcommands  clear\n");
         sb.append(" kill heart/hypothalamus/hippocampus/medula/cerebellum/tomcat  │  killhe  killhy  killhi  killmd  killce  killtc\n");
-        sb.append(" restarthe  restarthy  restarthi  restartmd  restarce  restarttc\n");
+        sb.append(" restarthe  restarthy  restarthi  restartmd  restartce  restarttc\n");
         sb.append(SEP_S).append('\n');
 
         String err = lastError;

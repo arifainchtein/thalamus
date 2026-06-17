@@ -368,7 +368,7 @@ public class Thalamus {
         else if (lo.equals("killce"))               { killProcess("Cerebellum.jar"); }
 
         // --- Restart commands (short codes) ---
-        else if (lo.equals("restarthe"))            { restartProcess("Heart.jar",        "StartHeartBG.sh"); }
+        else if (lo.equals("restarthe"))            { restartProcess("Heart.jar",        "heart/StartHeartBG.sh"); }
         else if (lo.equals("restarthy"))            { restartProcess("Hypothalamus.jar", "StartHypothalamusBG.sh"); }
         else if (lo.equals("restarthi"))            { restartProcess("Hippocampus.jar",  "StartHippocampusBG.sh"); }
         else if (lo.equals("restartmd"))            { restartProcess("Medula.jar",        "StartMedulaBG.sh"); }

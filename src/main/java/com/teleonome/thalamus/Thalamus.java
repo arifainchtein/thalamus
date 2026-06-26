@@ -734,7 +734,7 @@ public class Thalamus {
     // =========================================================
     private void renderDashboard(Map<String, Integer> stats) {
         StringBuilder sb = new StringBuilder();
-        sb.append("\033[H\033[2J");  // clear screen, cursor home
+        sb.append("\033[H");  // cursor home — overwrite in place, never blank the screen
 
         if (showCommandList) {
             renderCommandList(sb);
@@ -744,6 +744,7 @@ public class Thalamus {
             renderLogs(sb);
         }
         renderPrompt(sb);
+        sb.append("\033[J");  // erase any leftover lines from a previous taller render
 
         System.out.print(sb);
         System.out.flush();
@@ -921,6 +922,14 @@ public class Thalamus {
                 if (val.equals("[")) { inArray = true;  continue; }   // array start
                 if (val.equals("{")) { objKey = key; objValue = null; continue; } // object start
 
+                // DeviceDateRanges ships as a JSON-string-encoded array of {name,start,end}
+                // per device; expand it into one compact row per device instead of one raw blob.
+                if (inItem && kl.equals("value") && "DeviceDateRanges".equals(itemName)) {
+                    result.addAll(parseDeviceDateRanges(val));
+                    itemName = null; itemValue = null;
+                    continue;
+                }
+
                 val = val.replace("\"", "");
                 if (val.isEmpty()) continue;
 
@@ -942,6 +951,31 @@ public class Thalamus {
                 result.add(0, new String[]{titleCase(flatName), flatValue});
         } catch (Exception ignored) {}
         return result;
+    }
+
+    /**
+     * Parses the raw "Value" line of the DeviceDateRanges DeneWord — a JSON array
+     * of {"name","start","end"} escaped into a single string literal, e.g.
+     * "[{\"name\":\"Foo\",\"start\":\"2026-06-12 08:00:00\",\"end\":\"2026-06-19 14:32:10\"}]" —
+     * into one compact [device, "MM-dd→MM-dd"] row per device.
+     */
+    private List<String[]> parseDeviceDateRanges(String raw) {
+        List<String[]> out = new ArrayList<>();
+        String s = raw.trim();
+        if (s.startsWith("\"") && s.endsWith("\"")) s = s.substring(1, s.length() - 1);
+        s = s.replace("\\\"", "\"");
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+            "\"name\"\\s*:\\s*\"([^\"]*)\"\\s*,\\s*\"start\"\\s*:\\s*\"([^\"]*)\"\\s*,\\s*\"end\"\\s*:\\s*\"([^\"]*)\""
+        ).matcher(s);
+        while (m.find()) {
+            out.add(new String[]{ m.group(1), compactDate(m.group(2)) + "→" + compactDate(m.group(3)) });
+        }
+        return out;
+    }
+
+    /** "yyyy-MM-dd HH:mm:ss" -> "MM-dd", to fit the narrow Hippocampus status sub-column. */
+    private String compactDate(String full) {
+        return full.length() >= 10 ? full.substring(5, 10) : full;
     }
 
     private String titleCase(String s) {
